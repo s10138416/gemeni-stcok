@@ -13,7 +13,7 @@ st.set_page_config(page_title="مرصد السيولة والتحليل المؤ
 
 st.markdown("""
     <h1 style='text-align: center;'>🚀 مرصد السيولة والتحليل المؤسسي للأسهم السعودية (Sahm Pro - Master Edition)</h1>
-    <p style='text-align: center;'>الإصدار المطور: تجميع الصناديق، مصائد السيولة (Spring)، وفلتر أسهم الزخم العالي (High-Beta).</p>
+    <p style='text-align: center;'>الإصدار المرئي المطور: تجميع الصناديق، مصائد السيولة (Spring)، والتنبيهات المرئية الملونة.</p>
 """, unsafe_allow_html=True)
 
 st.sidebar.header("⚙️ إعدادات المنصة وإدارة المخاطر")
@@ -80,6 +80,23 @@ if enable_momentum_filter:
     stocks_dict = {name: code for name, code in full_stocks_dict.items() if code in momentum_stocks_list}
 else:
     stocks_dict = full_stocks_dict
+
+# دوال التنسيق والتلوين المرئي للجداول
+def highlight_trades(row):
+    res = str(row.get('النتيجة', ''))
+    if 'ربح' in res:
+        return ['background-color: rgba(40, 167, 69, 0.2); color: #155724; font-weight: bold;'] * len(row)
+    elif 'خسارة' in res:
+        return ['background-color: rgba(220, 53, 69, 0.2); color: #721c24;'] * len(row)
+    return [''] * len(row)
+
+def highlight_accumulation(row):
+    status = str(row.get('الحالة المؤسسية', ''))
+    if 'مصيدة' in status:
+        return ['background-color: rgba(255, 193, 7, 0.25); font-weight: bold;'] * len(row)
+    elif 'مؤكد' in status:
+        return ['background-color: rgba(40, 167, 69, 0.15);'] * len(row)
+    return [''] * len(row)
 
 if 'bt_results_df' not in st.session_state:
     st.session_state['bt_results_df'] = None
@@ -152,7 +169,7 @@ if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filte
                 if only_winners:
                     df_inst = df_inst[df_inst["التغير (%)"] > 0]
                 df_inst = df_inst.sort_values(by="مؤشر التجميع (%)", ascending=False)
-                st.dataframe(df_inst, use_container_width=True)
+                st.dataframe(df_inst.style.apply(highlight_accumulation, axis=1), use_container_width=True)
             else:
                 st.info("⚠️ لا توجد نتائج مطابقة لشروط التجميع الحالية.")
 
@@ -310,7 +327,7 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
         m2.metric("معدل النجاح", f"{round(wr * 100, 1)}%")
         m3.metric("العائد المتوقع", f"{round(exp, 2)}%")
         st.download_button("📥 تحميل السجل (Excel/CSV)", st.session_state['bt_results_df'].to_csv(index=False).encode('utf-8-sig'), "trades.csv", "text/csv")
-        st.dataframe(st.session_state['bt_results_df'], use_container_width=True)
+        st.dataframe(st.session_state['bt_results_df'].style.apply(highlight_trades, axis=1), use_container_width=True)
     elif st.session_state['bt_results_df'] is not None and st.session_state['bt_results_df'].empty:
         st.warning("⚠️ لا توجد صفقات مطابقة لهذا السهم في الفترة المحددة.")
 
@@ -416,7 +433,7 @@ elif app_mode == "🏛️📊 اختبار خلفي لاستراتيجية ال�
         am2.metric("معدل النجاح الإجمالي", f"{round(wra * 100, 1)}%")
         am3.metric("العائد المتوقع الاستراتيجي", f"{round(exp_a, 2)}%")
         st.download_button("📥 تحميل سجل الصفقات (Excel/CSV)", st.session_state['acc_bt_results'].to_csv(index=False).encode('utf-8-sig'), "accumulation_spring_trades.csv", "text/csv")
-        st.dataframe(st.session_state['acc_bt_results'], use_container_width=True)
+        st.dataframe(st.session_state['acc_bt_results'].style.apply(highlight_trades, axis=1), use_container_width=True)
     elif st.session_state.get('acc_bt_results') is not None and st.session_state.get('acc_bt_results').empty:
         st.warning("⚠️ لا توجد صفقات مطابقة في الفترة المحددة.")
 
@@ -493,6 +510,6 @@ else:
         pm2.metric("معدل النجاح العام", f"{round(w_rate * 100, 1)}%")
         pm3.metric("العائد المتوقع للسوق", f"{round(p_exp, 2)}%")
         st.download_button("📥 تحميل السجل الشامل (Excel/CSV)", st.session_state['portfolio_bt_df'].to_csv(index=False).encode('utf-8-sig'), "portfolio_trades.csv", "text/csv")
-        st.dataframe(st.session_state['portfolio_bt_df'], use_container_width=True)
+        st.dataframe(st.session_state['portfolio_bt_df'].style.apply(highlight_trades, axis=1), use_container_width=True)
     elif st.session_state['portfolio_bt_df'] is not None and st.session_state['portfolio_bt_df'].empty:
         st.warning("⚠️ لم يتم العثور على صفقات مطابقة في نطاق السوق الحالي.")
