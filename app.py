@@ -72,7 +72,6 @@ stocks_dict = {
 if 'bt_results_df' not in st.session_state:
     st.session_state['bt_results_df'] = None
     st.session_state['bt_metrics'] = None
-    st.session_state['bt_chart_data'] = None
 
 if 'portfolio_bt_df' not in st.session_state:
     st.session_state['portfolio_bt_df'] = None
@@ -80,92 +79,279 @@ if 'portfolio_bt_df' not in st.session_state:
 
 if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filtered Accumulation)":
     st.subheader("🏛️ رصد التجميع المؤسسي المطور (الفرص الحية)")
-    st.markdown("يستخدم هذا الماسح الفلاتر المعتمدة لاكتشاف تدفقات السيولة الكبرى الحقيقية وتجنب الإشارات الوهمية لحظياً.")
-    
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         min_acc_score = st.slider("مستوى مؤشر التجميع الأدنى (%)", 50, 95, 75)
     with col_f2:
         only_winners = st.checkbox("🟢 فلترة: عرض الأسهم ذات الزخم الإيجابي فقط", value=True)
-        
     run_inst_scan = st.button("تشغيل المسح المؤسسي الحي الآن", type="primary")
-    
     if run_inst_scan or enable_live_refresh:
         with st.spinner("جاري فحص السيولة وتصفية الإشارات الوهمية..."):
             inst_results = []
             for name, code in stocks_dict.items():
                 try:
-                    ticker_symbol = f"{code}.SR"
-                    df_i = yf.download(ticker_symbol, period="2mo", interval="1d", progress=False)
+                    df_i = yf.download(f"{code}.SR", period="2mo", interval="1d", progress=False)
                     if not df_i.empty and len(df_i) > 30:
                         if isinstance(df_i.columns, pd.MultiIndex):
                             df_i.columns = df_i.columns.get_level_values(0)
-                        
                         curr_price = float(df_i['Close'].iloc[-1])
                         prev_price = float(df_i['Close'].iloc[-2])
                         change_pct = ((curr_price - prev_price) / prev_price) * 100
-                        
                         df_i['SMA50'] = df_i['Close'].rolling(window=50).mean()
                         df_i['OBV'] = (np.sign(df_i['Close'].diff()) * df_i['Volume']).fillna(0).cumsum()
                         df_i['OBV_Slope'] = df_i['OBV'].diff(3)
-                        
                         delta = df_i['Close'].diff()
-                        gain = delta.clip(lower=0)
-                        loss = -delta.clip(upper=0)
-                        rs = gain.rolling(14).mean() / loss.rolling(14).mean()
+                        rs = delta.clip(lower=0).rolling(14).mean() / (-delta.clip(upper=0)).rolling(14).mean()
                         df_i['RSI'] = 100 - (100 / (1 + rs))
-                        
                         rsi_val = float(df_i['RSI'].iloc[-1])
                         sma50_val = float(df_i['SMA50'].iloc[-1]) if not pd.isna(df_i['SMA50'].iloc[-1]) else curr_price
-                        
                         if curr_price > sma50_val and rsi_val >= min_rsi_filter:
                             vol_mean = df_i['Volume'].rolling(window=15).mean().iloc[-1]
                             recent_vol = df_i['Volume'].iloc[-1]
-                            
-                            acc_score = min(max(50 + (float(df_i['OBV_Slope'].iloc[-1]) / (vol_mean + 1)) * 10 + (recent_vol / vol_mean) * 10, 45), 98.5)
-                            acc_score = round(acc_score, 1)
-                            
-                            flow_status = "تجميع مؤسسي مؤكد 🟢🟢" if acc_score >= 80 else "تراكم سيولة ذكية 🟢"
-                            turnover = int(curr_price * recent_vol)
-                            
+                            acc_score = round(min(max(50 + (float(df_i['OBV_Slope'].iloc[-1]) / (vol_mean + 1)) * 10 + (recent_vol / vol_mean) * 10, 45), 98.5), 1)
                             inst_results.append({
                                 "الرمز والشركة": name, "السعر الحالي": round(curr_price, 2),
                                 "التغير (%)": round(change_pct, 2), "مؤشر RSI": round(rsi_val, 1),
-                                "السيولة المرصودة (ر.س)": turnover, "مؤشر التجميع (%)": acc_score,
-                                "الحالة المؤسسية": flow_status
+                                "السيولة المرصودة (ر.س)": int(curr_price * recent_vol),
+                                "مؤشر التجميع (%)": acc_score,
+                                "الحالة المؤسسية": "تجميع مؤسسي مؤكد 🟢🟢" if acc_score >= 80 else "تراكم سيولة ذكية 🟢"
                             })
                 except Exception:
                     continue
-                    
             df_inst = pd.DataFrame(inst_results)
             if not df_inst.empty:
                 df_inst = df_inst[df_inst["مؤشر التجميع (%)"] >= min_acc_score]
                 if only_winners:
                     df_inst = df_inst[df_inst["التغير (%)"] > 0]
                 df_inst = df_inst.sort_values(by="مؤشر التجميع (%)", ascending=False)
-                
-                m1, m2, m3 = st.columns(3)
-                m1.metric("الأسهم المطابقة للمعايير المؤسسية", f"{len(df_inst)} سهم")
-                m2.metric("مؤشر جودة الزخم", "مرتفع (مرشح)", "90/100")
-                m3.metric("تصفية الوهمية", f"مفعلة (عتبة حجم {vol_threshold})")
-                
-                st.markdown("---")
-                col_i1, col_i2 = st.columns([3, 1])
-                with col_i1:
-                    st.subheader("📋 قائمة الأسهم ذات التجميع المؤسسي الحي")
-                with col_i2:
-                    csv_inst = df_inst.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(label="📥 تحميل النتائج (Excel)", data=csv_inst, file_name="sahm_pro_live_accumulation.csv", mime="text/csv")
-                    
                 st.dataframe(df_inst, use_container_width=True)
             else:
-                st.info("⚠️ لا توجد نتائج مطابقة لشروط التجميع المؤسسي الصارمة حالياً.")
+                st.info("⚠️ لا توجد نتائج مطابقة لشروط التجميع الحالية.")
+
 elif app_mode == "🌐 مرصد السوق اللحظي المباشر (Daily Scanner)":
     st.subheader("🌐 مرصد السوق اليومي المباشر")
-    st.info("💡 اضغط على زر الماسح لتحديث البيانات اللحظية.")
+    run_live_alerts = st.button("تشغيل الماسح اليومي الآن", type="primary")
+    if run_live_alerts or enable_live_refresh:
+        risk_amount = total_capital * (risk_percentage / 100.0)
+        alert_results = []
+        for name, code in stocks_dict.items():
+            try:
+                df_live = yf.download(f"{code}.SR", period="1mo", interval="1d", progress=False)
+                if not df_live.empty:
+                    if isinstance(df_live.columns, pd.MultiIndex):
+                        df_live.columns = df_live.columns.get_level_values(0)
+                    current_price = float(df_live['Close'].iloc[-1])
+                    df_live['SMA50'] = df_live['Close'].rolling(window=50).mean()
+                    prev_high = float(df_live['High'].iloc[-2])
+                    prev_volume = float(df_live['Volume'].iloc[-2])
+                    avg_volume = float(df_live['Volume'].rolling(window=20).mean().iloc[-1])
+                    sma50_val = float(df_live['SMA50'].iloc[-1]) if not pd.isna(df_live['SMA50'].iloc[-1]) else current_price
+                    atr = current_price * 0.025
+                    if (prev_volume > (vol_threshold * avg_volume)) and (current_price > sma50_val):
+                        optimal_entry = round(prev_high + 0.02, 2)
+                        stop_loss = round(optimal_entry - (sl_multiplier * atr), 2)
+                        target = round(optimal_entry + (target_multiplier * atr), 2)
+                        shares = int(risk_amount / (optimal_entry - stop_loss)) if optimal_entry > stop_loss else 0
+                        alert_results.append({
+                            "السهم": name, "السعر الحالي": round(current_price, 2), "سعر الزناد": optimal_entry,
+                            "وقف الخسارة": stop_loss, "الهدف": target, "الأسهم المقترحة": shares
+                        })
+            except Exception:
+                continue
+        df_alerts = pd.DataFrame(alert_results)
+        if not df_alerts.empty:
+            st.dataframe(df_alerts, use_container_width=True)
+        else:
+            st.info("⚠️ لا توجد صفقات مطابقة حالياً.")
+
 elif app_mode == "⚡ راصد الفريمات الصغيرة للمضاربة اليومية (Scalping Scanner)":
     st.subheader(f"⚡ راصد الفريمات الصغيرة ({scalp_interval}) للمضاربة اليومية السريعة")
+    run_scalp = st.button("تشغيل راصد المضاربة اللحظية الآن", type="primary")
+    if run_scalp or enable_live_refresh:
+        risk_amount = total_capital * (risk_percentage / 100.0)
+        scalp_results = []
+        for name, code in stocks_dict.items():
+            try:
+                df_s = yf.download(f"{code}.SR", period="5d", interval=scalp_interval, progress=False)
+                if not df_s.empty and len(df_s) > 20:
+                    if isinstance(df_s.columns, pd.MultiIndex):
+                        df_s.columns = df_s.columns.get_level_values(0)
+                    df_s['EMA9'] = df_s['Close'].ewm(span=9, adjust=False).mean()
+                    df_s['Vol_MA'] = df_s['Volume'].rolling(window=15).mean()
+                    df_s['ATR'] = (df_s['High'] - df_s['Low']).rolling(window=14).mean()
+                    cur_price = float(df_s['Close'].iloc[-1])
+                    cur_vol = float(df_s['Volume'].iloc[-1])
+                    avg_vol = float(df_s['Vol_MA'].iloc[-1])
+                    ema9_val = float(df_s['EMA9'].iloc[-1])
+                    cur_atr = float(df_s['ATR'].iloc[-1]) if not pd.isna(df_s['ATR'].iloc[-1]) else (cur_price * 0.01)
+                    if (cur_vol > (vol_threshold * avg_vol)) and (cur_price > ema9_val):
+                        trigger = round(float(df_s['High'].iloc[-2]) + 0.02, 2)
+                        stop_loss = round(trigger - (sl_multiplier * cur_atr), 2)
+                        target = round(trigger + (target_multiplier * cur_atr), 2)
+                        shares = int(risk_amount / (trigger - stop_loss)) if trigger > stop_loss else 0
+                        scalp_results.append({
+                            "السهم": name, "السعر اللحظي": round(cur_price, 2), "سعر الزناد": trigger,
+                            "وقف الخسارة": stop_loss, "الهدف": target, "الكمية المقترحة": shares
+                        })
+            except Exception:
+                continue
+        df_scalp = pd.DataFrame(scalp_results)
+        if not df_scalp.empty:
+            st.dataframe(df_scalp, use_container_width=True)
+        else:
+            st.info(f"⚠️ لا توجد فرص سكالبينغ على الفريم ({scalp_interval}) حالياً.")
+
 elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
-    st.subheader("📊 اختبار خلفي فردي مع وقف خسارة متحرك مشروط")
+    st.subheader("📊 اختبار خلفي فردي مع وقف خسارة متحرك مشروط (Single Stock Backtest)")
+    st.markdown("اختبار أداء استراتيجية التجميع المؤسسي على سهم واحد محدد مع عرض النتائج التفصيلية وإمكانية التحميل.")
+    
+    # 🟢 أدوات التحكم أصبحت واضحة ومباشرة في وسط الشاشة الرئيسية
+    col_c1, col_c2, col_c3 = st.columns([2, 2, 1])
+    with col_c1:
+        bt_stock_name = st.selectbox("اختر السهم للاختبار", list(stocks_dict.keys()))
+    with col_c2:
+        period_label = st.selectbox("فترة الاختبار التاريخي", ["6 أشهر", "سنة كاملة", "سنتان"])
+        selected_period = {"6 أشهر": "6mo", "سنة كاملة": "1y", "سنتان": "2y"}[period_label]
+    with col_c3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_backtest = st.button("تشغيل الاختبار الفردي", type="primary")
+    
+    bt_code = stocks_dict[bt_stock_name]
+
+    if run_backtest:
+        with st.spinner("جاري تشغيل الاختبار الفردي للسهم..."):
+            try:
+                df = yf.download(f"{bt_code}.SR", period=selected_period, interval="1d", progress=False)
+                if not df.empty and len(df) > 50:
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    df['SMA50'] = df['Close'].rolling(window=50).mean()
+                    df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
+                    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+                    df['OBV_Slope'] = df['OBV'].diff(3)
+                    rs = df['Close'].diff().clip(lower=0).rolling(14).mean() / (-df['Close'].diff().clip(upper=0)).rolling(14).mean()
+                    df['RSI'] = 100 - (100 / (1 + rs))
+                    df['ATR'] = (df['High'] - df['Low']).rolling(window=14).mean()
+                    df['Signal'] = np.where((df['OBV_Slope'] > 0) & (df['Volume'] > vol_threshold * df['Volume_MA']) & (df['Close'] > df['SMA50']) & (df['RSI'] >= min_rsi_filter), 1, 0)
+                    
+                    trades, in_pos, entry_p, sl, target_p, highest, e_date = [], False, 0, 0, 0, 0, ""
+                    for i in range(50, len(df)):
+                        if not in_pos and df['Signal'].iloc[i] == 1:
+                            e_date = str(df.index[i]).split()[0]
+                            entry_p = float(df['Close'].iloc[i])
+                            c_atr = float(df['ATR'].iloc[i]) or (entry_p * 0.01)
+                            sl = round(entry_p - (sl_multiplier * c_atr), 2)
+                            target_p = round(entry_p + (target_multiplier * c_atr), 2)
+                            highest = entry_p
+                            in_pos = True
+                        elif in_pos:
+                            h_p, l_p, c_atr = float(df['High'].iloc[i]), float(df['Low'].iloc[i]), float(df['ATR'].iloc[i]) or (entry_p * 0.01)
+                            if enable_trailing and h_p > entry_p + (1.0 * c_atr) and h_p > highest:
+                                highest = h_p
+                                new_sl = round(highest - (trailing_atr_mult * c_atr), 2)
+                                if new_sl > sl: sl = new_sl
+                            if h_p >= target_p:
+                                trades.append({"السهم": bt_stock_name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢", "العائد (%)": round(((target_p - entry_p) / entry_p) * 100, 2)})
+                                in_pos = False
+                            elif l_p <= sl:
+                                trades.append({"السهم": bt_stock_name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl - entry_p) / entry_p) * 100, 2)})
+                                in_pos = False
+                            elif i == len(df) - 1:
+                                final_c = float(df['Close'].iloc[i])
+                                trades.append({"السهم": bt_stock_name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢" if final_c > entry_p else "خسارة 🔴", "العائد (%)": round(((final_c - entry_p) / entry_p) * 100, 2)})
+                                in_pos = False
+                    
+                    df_t = pd.DataFrame(trades)
+                    if not df_t.empty:
+                        w_t = len(df_t[df_t['النتيجة'].str.contains("ربح")])
+                        wr = w_t / len(df_t)
+                        exp = (wr * df_t[df_t['النتيجة'].str.contains("ربح")]['العائد (%)'].mean()) - ((1 - wr) * abs(df_t[df_t['النتيجة'] == "خسارة 🔴"]['العائد (%)'].mean()))
+                        st.session_state['bt_results_df'] = df_t
+                        st.session_state['bt_metrics'] = (len(df_t), wr, exp)
+                    else:
+                        st.session_state['bt_results_df'] = pd.DataFrame()
+            except Exception as e:
+                st.error(f"خطأ: {e}")
+
+    if st.session_state['bt_results_df'] is not None and not st.session_state['bt_results_df'].empty:
+        tot, wr, exp = st.session_state['bt_metrics']
+        m1, m2, m3 = st.columns(3)
+        m1.metric("إجمالي الصفقات", tot)
+        m2.metric("معدل النجاح", f"{round(wr * 100, 1)}%")
+        m3.metric("العائد المتوقع", f"{round(exp, 2)}%")
+        st.download_button("📥 تحميل السجل (Excel/CSV)", st.session_state['bt_results_df'].to_csv(index=False).encode('utf-8-sig'), "trades.csv", "text/csv")
+        st.dataframe(st.session_state['bt_results_df'], use_container_width=True)
+    elif st.session_state['bt_results_df'] is not None and st.session_state['bt_results_df'].empty:
+        st.warning("⚠️ لا توجد صفقات مطابقة لهذا السهم في الفترة المحددة.")
+
 else:
-    st.subheader("🌐📊 اختبار خلفي شامل لاستراتيجية التجميع المؤسسي لكل السوق")
+    st.subheader("🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)")
+    st.markdown("تشغيل الاختبار الخلفي لجميع أسهم السوق السعودي المدرجة وفق معايير التجميع المؤسسي.")
+    run_port = st.button("تشغيل الاختبار الشامل لكل السوق", type="primary")
+    if run_port:
+        with st.spinner("جاري فحص السوق الشامل..."):
+            all_t = []
+            for name, code in stocks_dict.items():
+                try:
+                    df_p = yf.download(f"{code}.SR", period="1y", interval="1d", progress=False)
+                    if not df_p.empty and len(df_p) > 50:
+                        if isinstance(df_p.columns, pd.MultiIndex):
+                            df_p.columns = df_p.columns.get_level_values(0)
+                        df_p['SMA50'] = df_p['Close'].rolling(window=50).mean()
+                        df_p['Volume_MA'] = df_p['Volume'].rolling(window=20).mean()
+                        df_p['OBV'] = (np.sign(df_p['Close'].diff()) * df_p['Volume']).fillna(0).cumsum()
+                        df_p['OBV_Slope'] = df_p['OBV'].diff(3)
+                        rs = df_p['Close'].diff().clip(lower=0).rolling(14).mean() / (-df_p['Close'].diff().clip(upper=0)).rolling(14).mean()
+                        df_p['RSI'] = 100 - (100 / (1 + rs))
+                        df_p['ATR'] = (df_p['High'] - df_p['Low']).rolling(window=14).mean()
+                        df_p['Signal'] = np.where((df_p['OBV_Slope'] > 0) & (df_p['Volume'] > vol_threshold * df_p['Volume_MA']) & (df_p['Close'] > df_p['SMA50']) & (df_p['RSI'] >= min_rsi_filter), 1, 0)
+                        
+                        in_pos, entry_p, sl, target_p, highest, e_date = False, 0, 0, 0, 0, ""
+                        for i in range(50, len(df_p)):
+                            if not in_pos and df_p['Signal'].iloc[i] == 1:
+                                e_date = str(df_p.index[i]).split()[0]
+                                entry_p = float(df_p['Close'].iloc[i])
+                                c_atr = float(df_p['ATR'].iloc[i]) or (entry_p * 0.01)
+                                sl = round(entry_p - (sl_multiplier * c_atr), 2)
+                                target_p = round(entry_p + (target_multiplier * c_atr), 2)
+                                highest = entry_p
+                                in_pos = True
+                            elif in_pos:
+                                h_p, l_p, c_atr = float(df_p['High'].iloc[i]), float(df_p['Low'].iloc[i]), float(df_p['ATR'].iloc[i]) or (entry_p * 0.01)
+                                if enable_trailing and h_p > entry_p + (1.0 * c_atr) and h_p > highest:
+                                    highest = h_p
+                                    new_sl = round(highest - (trailing_atr_mult * c_atr), 2)
+                                    if new_sl > sl: sl = new_sl
+                                if h_p >= target_p:
+                                    all_t.append({"السهم": name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢", "العائد (%)": round(((target_p - entry_p) / entry_p) * 100, 2)})
+                                    in_pos = False
+                                elif l_p <= sl:
+                                    all_t.append({"السهم": name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl - entry_p) / entry_p) * 100, 2)})
+                                    in_pos = False
+                                elif i == len(df_p) - 1:
+                                    final_c = float(df_p['Close'].iloc[i])
+                                    all_t.append({"السهم": name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢" if final_c > entry_p else "خسارة 🔴", "العائد (%)": round(((final_c - entry_p) / entry_p) * 100, 2)})
+                                    in_pos = False
+                except Exception:
+                    continue
+            df_port = pd.DataFrame(all_t)
+            if not df_port.empty:
+                tot_t = len(df_port)
+                w_t = len(df_port[df_port['النتيجة'].str.contains("ربح")])
+                w_rate = w_t / tot_t
+                p_exp = (w_rate * df_port[df_port['النتيجة'].str.contains("ربح")]['العائد (%)'].mean()) - ((1 - w_rate) * abs(df_port[df_port['النتيجة'] == "خسارة 🔴"]['العائد (%)'].mean()))
+                st.session_state['portfolio_bt_df'] = df_port
+                st.session_state['portfolio_metrics'] = (tot_t, w_rate, p_exp)
+            else:
+                st.session_state['portfolio_bt_df'] = pd.DataFrame()
+
+    if st.session_state['portfolio_bt_df'] is not None and not st.session_state['portfolio_bt_df'].empty:
+        tot_t, w_rate, p_exp = st.session_state['portfolio_metrics']
+        pm1, pm2, pm3 = st.columns(3)
+        pm1.metric("إجمالي صفقات السوق", tot_t)
+        pm2.metric("معدل النجاح العام", f"{round(w_rate * 100, 1)}%")
+        pm3.metric("العائد المتوقع للسوق", f"{round(p_exp, 2)}%")
+        st.download_button("📥 تحميل السجل الشامل (Excel/CSV)", st.session_state['portfolio_bt_df'].to_csv(index=False).encode('utf-8-sig'), "portfolio_trades.csv", "text/csv")
+        st.dataframe(st.session_state['portfolio_bt_df'], use_container_width=True)
+    elif st.session_state['portfolio_bt_df'] is not None and st.session_state['portfolio_bt_df'].empty:
+        st.warning("⚠️ لم يتم العثور على صفقات مطابقة في نطاق السوق الحالي.")
