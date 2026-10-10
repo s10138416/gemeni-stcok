@@ -12,8 +12,8 @@ except ImportError:
 st.set_page_config(page_title="مرصد السيولة والتحليل المؤسسي (Sahm Pro)", layout="wide")
 
 st.markdown("""
-    <h1 style='text-align: center;'>🚀 مرصد السيولة والتحليل المؤسسي للأسهم السعودية (Sahm Pro)</h1>
-    <p style='text-align: center;'>الإصدار التشغيلي المباشر: فحص الفرص الحية والسيولة الذكية وفق المعايير المؤسسية المعتمدة.</p>
+    <h1 style='text-align: center;'>🚀 مرصد السيولة والتحليل المؤسسي للأسهم السعودية (Sahm Pro - Master Edition)</h1>
+    <p style='text-align: center;'>الإصدار الشامل: دمج تجميع الصناديق، زناد الاختراق، مصائد السيولة (Spring)، ومؤشر التكلفة (Anchored VWAP).</p>
 """, unsafe_allow_html=True)
 
 st.sidebar.header("⚙️ إعدادات المنصة وإدارة المخاطر")
@@ -22,7 +22,7 @@ app_mode = st.sidebar.selectbox("اختر وضع التشغيل", [
     "🌐 مرصد السوق اللحظي المباشر (Daily Scanner)", 
     "⚡ راصد الفريمات الصغيرة للمضاربة اليومية (Scalping Scanner)",
     "📊 اختبار خلفي فردي (Single Stock Backtest)",
-    "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور (Filtered Accumulation Backtest)",
+    "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور مع مصائد السيولة (Accumulation & Spring Backtest)",
     "🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)"
 ], index=0)
 
@@ -51,7 +51,7 @@ enable_trailing = st.sidebar.checkbox("تفعيل وقف الخسارة المت
 trailing_atr_mult = st.sidebar.slider("مضاعف وقف الخسارة المتحرك (ATR)", min_value=0.5, max_value=3.0, value=2.0, step=0.1)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🎛️ معايير تصفية الإشارات الوهمية (المعتمدة)")
+st.sidebar.subheader("🎛️ معايير تصفية الإشارات الوهمية والذكيّة")
 vol_threshold = st.sidebar.slider("عتبة تضخم الحجوم المطورة", min_value=1.2, max_value=3.0, value=1.8, step=0.1)
 min_rsi_filter = st.sidebar.slider("الحد الأدنى لمؤشر الزخم (RSI)", min_value=45, max_value=60, value=50, step=1)
 min_acc_score = st.slider("مستوى مؤشر التجميع الأدنى للمسح والاختبار (%)", 50, 95, 75)
@@ -84,15 +84,15 @@ if 'portfolio_bt_df' not in st.session_state:
     st.session_state['portfolio_metrics'] = None
 
 if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filtered Accumulation)":
-    st.subheader("🏛️ رصد التجميع المؤسسي المطور (الفرص الحية)")
+    st.subheader("🏛️ رصد التجميع المؤسسي المطور ومصائد السيولة (الفرص الحية)")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        st.info(f"مستوى التجميع الأدنى الحالي: {min_acc_score}%")
+        st.info(f"مستوى التجميع الأدنى الحالي: {min_acc_score}% (يشمل رصد Spring وبصمة Anchored VWAP)")
     with col_f2:
         only_winners = st.checkbox("🟢 فلترة: عرض الأسهم ذات الزخم الإيجابي فقط", value=True)
     run_inst_scan = st.button("تشغيل المسح المؤسسي الحي الآن", type="primary")
     if run_inst_scan or enable_live_refresh:
-        with st.spinner("جاري فحص السيولة وتصفية الإشارات الوهمية..."):
+        with st.spinner("جاري فحص السيولة وتكتيكات المضارب الكبير (Spring & VWAP)..."):
             inst_results = []
             for name, code in stocks_dict.items():
                 try:
@@ -109,18 +109,33 @@ if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filte
                         delta = df_i['Close'].diff()
                         rs = delta.clip(lower=0).rolling(14).mean() / (-delta.clip(upper=0)).rolling(14).mean()
                         df_i['RSI'] = 100 - (100 / (1 + rs))
+                        
+                        # حساب مصيدة السيولة (Spring/Shakeout) الشمعة الحالية أو السابقة
+                        is_spring = (df_i['Low'].iloc[-1] < df_i['Low'].rolling(10).min().shift(1).iloc[-1]) and (curr_price > float(df_i['Open'].iloc[-1]))
+                        
+                        # حساب Anchored VWAP من أدنى قاع في آخر 20 جلسة
+                        min_idx = df_i['Low'].iloc[-20:].idxmin()
+                        sub_df = df_i.loc[min_idx:]
+                        tp = (sub_df['High'] + sub_df['Low'] + sub_df['Close']) / 3
+                        avwap = float((tp * sub_df['Volume']).sum() / sub_df['Volume'].sum()) if sub_df['Volume'].sum() > 0 else curr_price
+
                         rsi_val = float(df_i['RSI'].iloc[-1])
                         sma50_val = float(df_i['SMA50'].iloc[-1]) if not pd.isna(df_i['SMA50'].iloc[-1]) else curr_price
+                        
                         if curr_price > sma50_val and rsi_val >= min_rsi_filter:
                             vol_mean = df_i['Volume'].rolling(window=15).mean().iloc[-1]
                             recent_vol = df_i['Volume'].iloc[-1]
-                            acc_score = round(min(max(50 + (float(df_i['OBV_Slope'].iloc[-1]) / (vol_mean + 1)) * 10 + (recent_vol / vol_mean) * 10, 45), 98.5), 1)
+                            base_score = 50 + (float(df_i['OBV_Slope'].iloc[-1]) / (vol_mean + 1)) * 10 + (recent_vol / vol_mean) * 10
+                            if is_spring:
+                                base_score += 15.0  # مكافأة تكتيك مصيدة السيولة للمضارب الكبير
+                            acc_score = round(min(max(base_score, 45), 98.5), 1)
+                            
                             inst_results.append({
                                 "الرمز والشركة": name, "السعر الحالي": round(curr_price, 2),
                                 "التغير (%)": round(change_pct, 2), "مؤشر RSI": round(rsi_val, 1),
-                                "السيولة المرصودة (ر.س)": int(curr_price * recent_vol),
+                                "مؤشر التكلفة AVWAP": round(avwap, 2),
                                 "مؤشر التجميع (%)": acc_score,
-                                "الحالة المؤسسية": "تجميع مؤسسي مؤكد 🟢🟢" if acc_score >= 80 else "تراكم سيولة ذكية 🟢"
+                                "الحالة المؤسسية": "تجميع احترافي + مصيدة 🟢🔥" if is_spring else ("تجميع مؤسسي مؤكد 🟢🟢" if acc_score >= 80 else "تراكم سيولة ذكية 🟢")
                             })
                 except Exception:
                     continue
@@ -241,8 +256,6 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
                     for i in range(50, len(df) - 5):
                         if not in_pos and df['Signal'].iloc[i] == 1:
                             trigger_price = round(float(df['High'].iloc[i]) + 0.02, 2)
-                            # فحص هل تم اختراق سعر الزناد في الجلسات اللاحقة (خلال 3 جلسات)
-                            entered = False
                             for offset in range(1, 4):
                                 if i + offset < len(df):
                                     if float(df['High'].iloc[i+offset]) >= trigger_price:
@@ -253,7 +266,6 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
                                         target_p = round(entry_p + (target_multiplier * c_atr), 2)
                                         highest = entry_p
                                         in_pos = True
-                                        entered = True
                                         break
                         elif in_pos:
                             h_p, l_p, c_atr = float(df['High'].iloc[i]), float(df['Low'].iloc[i]), float(df['ATR'].iloc[i]) or (entry_p * 0.01)
@@ -295,9 +307,9 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
     elif st.session_state['bt_results_df'] is not None and st.session_state['bt_results_df'].empty:
         st.warning("⚠️ لا توجد صفقات مطابقة لهذا السهم في الفترة المحددة.")
 
-elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور (Filtered Accumulation Backtest)":
-    st.subheader("🏛️📊 اختبار خلفي لاستراتيجية التجميع المؤسسي المطور (Filtered Accumulation Backtest)")
-    st.markdown(f"اختبار أداء شروط التجميع المؤسسي الفعلي (مؤشر التجميع $\\ge$ {min_acc_score}% + RSI $\\ge$ {min_rsi_filter} + متوسط 50) مع زناد الاختراق الحي وإدارة المخاطر.")
+elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور مع مصائد السيولة (Accumulation & Spring Backtest)":
+    st.subheader("🏛️📊 اختبار خلفي لاستراتيجية التجميع ومصائد السيولة (Spring & Accumulation Backtest)")
+    st.markdown(f"اختبار أداء شروط التجميع المدعومة برصد مصائد السيولة (Spring Detection) وزناد الاختراق الحي.")
     
     col_ab1, col_ab2, col_ab3 = st.columns([2, 2, 1])
     with col_ab1:
@@ -307,12 +319,12 @@ elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسس�
         acc_period = {"6 أشهر": "6mo", "سنة كاملة": "1y", "سنتان": "2y"}[acc_period_label]
     with col_ab3:
         st.markdown("<br>", unsafe_allow_html=True)
-        run_acc_bt = st.button("تشغيل اختبار التجميع", type="primary")
+        run_acc_bt = st.button("تشغيل اختبار التجميع المصحوب بمصائد السيولة", type="primary")
         
     acc_code_val = stocks_dict[acc_bt_stock]
     
     if run_acc_bt:
-        with st.spinner("جاري محاكاة وتطبيق استراتيجية التجميع المؤسسي المطور..."):
+        with st.spinner("جاري محاكاة وتطبيق استراتيجية التجميع ومصائد السيولة..."):
             try:
                 df_a = yf.download(f"{acc_code_val}.SR", period=acc_period, interval="1d", progress=False)
                 if not df_a.empty and len(df_a) > 50:
@@ -331,8 +343,13 @@ elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسس�
                     df_a['ATR'] = (df_a['High'] - df_a['Low']).rolling(window=14).mean()
                     
                     vol_mean_s = df_a['Volume'].rolling(window=15).mean()
+                    
+                    # فحص مصيدة السيولة لكل شمعة
+                    spring_cond = (df_a['Low'] < df_a['Low'].rolling(10).min().shift(1)) & (df_a['Close'] > df_a['Open'])
+                    
                     score_c = 50 + (df_a['OBV_Slope'] / (vol_mean_s + 1)) * 10 + (df_a['Volume'] / vol_mean_s) * 10
-                    df_a['Acc_Score'] = score_c.clip(45, 98.5).round(1)
+                    score_c = np.where(spring_cond, score_c + 15, score_c)
+                    df_a['Acc_Score'] = np.clip(score_c, 45, 98.5).round(1)
                     
                     df_a['Signal'] = np.where(
                         (df_a['Acc_Score'] >= min_acc_score) & 
@@ -389,17 +406,17 @@ elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسس�
     if st.session_state.get('acc_bt_results') is not None and not st.session_state['acc_bt_results'].empty:
         tot_a, wra, exp_a = st.session_state['acc_bt_metrics']
         am1, am2, am3 = st.columns(3)
-        am1.metric("إجمالي صفقات التجميع", tot_a)
-        am2.metric("معدل نجاح التجميع", f"{round(wra * 100, 1)}%")
-        am3.metric("العائد المتوقع للتجميع", f"{round(exp_a, 2)}%")
-        st.download_button("📥 تحميل سجل صفقات التجميع (Excel/CSV)", st.session_state['acc_bt_results'].to_csv(index=False).encode('utf-8-sig'), "accumulation_trades.csv", "text/csv")
+        am1.metric("إجمالي صفقات التجميع ومصائد السيولة", tot_a)
+        am2.metric("معدل النجاح الإجمالي", f"{round(wra * 100, 1)}%")
+        am3.metric("العائد المتوقع الاستراتيجي", f"{round(exp_a, 2)}%")
+        st.download_button("📥 تحميل سجل صفقات التجميع والمصائد (Excel/CSV)", st.session_state['acc_bt_results'].to_csv(index=False).encode('utf-8-sig'), "accumulation_spring_trades.csv", "text/csv")
         st.dataframe(st.session_state['acc_bt_results'], use_container_width=True)
     elif st.session_state.get('acc_bt_results') is not None and st.session_state.get('acc_bt_results').empty:
-        st.warning("⚠️ لا توجد صفقات مطابقة لشروط مؤشر التجميع المؤسسي في الفترة المحددة.")
+        st.warning("⚠️ لا توجد صفقات مطابقة في الفترة المحددة.")
 
 else:
     st.subheader("🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)")
-    st.markdown("تشغيل الاختبار الخلفي لجميع أسهم السوق السعودي المدرجة وفق معايير التجميع المؤسسي.")
+    st.markdown("تشغيل الاختبار الخلفي لجميع أسهم السوق السعودي المدرجة وفق معايير التجميع ومصائد السيولة.")
     run_port = st.button("تشغيل الاختبار الشامل لكل السوق", type="primary")
     if run_port:
         with st.spinner("جاري فحص السوق الشامل..."):
