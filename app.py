@@ -238,15 +238,23 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
                     df['Signal'] = np.where((df['OBV_Slope'] > 0) & (df['Volume'] > vol_threshold * df['Volume_MA']) & (df['Close'] > df['SMA50']) & (df['RSI'] >= min_rsi_filter), 1, 0)
                     
                     trades, in_pos, entry_p, sl, target_p, highest, e_date = [], False, 0, 0, 0, 0, ""
-                    for i in range(50, len(df) - 1):
+                    for i in range(50, len(df) - 5):
                         if not in_pos and df['Signal'].iloc[i] == 1:
-                            e_date = str(df.index[i+1]).split()[0]
-                            entry_p = float(df['Open'].iloc[i+1])
-                            c_atr = float(df['ATR'].iloc[i]) or (entry_p * 0.01)
-                            sl = round(entry_p - (sl_multiplier * c_atr), 2)
-                            target_p = round(entry_p + (target_multiplier * c_atr), 2)
-                            highest = entry_p
-                            in_pos = True
+                            trigger_price = round(float(df['High'].iloc[i]) + 0.02, 2)
+                            # فحص هل تم اختراق سعر الزناد في الجلسات اللاحقة (خلال 3 جلسات)
+                            entered = False
+                            for offset in range(1, 4):
+                                if i + offset < len(df):
+                                    if float(df['High'].iloc[i+offset]) >= trigger_price:
+                                        e_date = str(df.index[i+offset]).split()[0]
+                                        entry_p = trigger_price
+                                        c_atr = float(df['ATR'].iloc[i]) or (entry_p * 0.01)
+                                        sl = round(entry_p - (sl_multiplier * c_atr), 2)
+                                        target_p = round(entry_p + (target_multiplier * c_atr), 2)
+                                        highest = entry_p
+                                        in_pos = True
+                                        entered = True
+                                        break
                         elif in_pos:
                             h_p, l_p, c_atr = float(df['High'].iloc[i]), float(df['Low'].iloc[i]), float(df['ATR'].iloc[i]) or (entry_p * 0.01)
                             if enable_trailing and h_p > entry_p + (1.0 * c_atr) and h_p > highest:
@@ -259,7 +267,7 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
                             elif l_p <= sl:
                                 trades.append({"السهم": bt_stock_name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl - entry_p) / entry_p) * 100, 2)})
                                 in_pos = False
-                            elif i == len(df) - 2:
+                            elif i == len(df) - 6:
                                 final_c = float(df['Close'].iloc[i])
                                 trades.append({"السهم": bt_stock_name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢" if final_c > entry_p else "خسارة 🔴", "العائد (%)": round(((final_c - entry_p) / entry_p) * 100, 2)})
                                 in_pos = False
@@ -289,7 +297,7 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
 
 elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور (Filtered Accumulation Backtest)":
     st.subheader("🏛️📊 اختبار خلفي لاستراتيجية التجميع المؤسسي المطور (Filtered Accumulation Backtest)")
-    st.markdown(f"اختبار أداء شروط التجميع المؤسسي الفعلي (مؤشر التجميع $\\ge$ {min_acc_score}% + RSI $\\ge$ {min_rsi_filter} + متوسط 50) مع الدخول عند افتتاح الجلسة التالية وإدارة المخاطر.")
+    st.markdown(f"اختبار أداء شروط التجميع المؤسسي الفعلي (مؤشر التجميع $\\ge$ {min_acc_score}% + RSI $\\ge$ {min_rsi_filter} + متوسط 50) مع زناد الاختراق الحي وإدارة المخاطر.")
     
     col_ab1, col_ab2, col_ab3 = st.columns([2, 2, 1])
     with col_ab1:
@@ -333,15 +341,22 @@ elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسس�
                     )
                     
                     trades_a, in_pos_a, entry_pa, sl_a, target_pa, high_a, date_a = [], False, 0, 0, 0, 0, ""
-                    for i in range(50, len(df_a) - 1):
+                    for i in range(50, len(df_a) - 5):
                         if not in_pos_a and df_a['Signal'].iloc[i] == 1:
-                            date_a = str(df_a.index[i+1]).split()[0]
-                            entry_pa = float(df_a['Open'].iloc[i+1])
-                            c_atr_a = float(df_a['ATR'].iloc[i]) or (entry_pa * 0.01)
-                            sl_a = round(entry_pa - (sl_multiplier * c_atr_a), 2)
-                            target_pa = round(entry_pa + (target_multiplier * c_atr_a), 2)
-                            high_a = entry_pa
-                            in_pos_a = True
+                            trigger_price_a = round(float(df_a['High'].iloc[i]) + 0.02, 2)
+                            entered_a = False
+                            for offset in range(1, 4):
+                                if i + offset < len(df_a):
+                                    if float(df_a['High'].iloc[i+offset]) >= trigger_price_a:
+                                        date_a = str(df_a.index[i+offset]).split()[0]
+                                        entry_pa = trigger_price_a
+                                        c_atr_a = float(df_a['ATR'].iloc[i]) or (entry_pa * 0.01)
+                                        sl_a = round(entry_pa - (sl_multiplier * c_atr_a), 2)
+                                        target_pa = round(entry_pa + (target_multiplier * c_atr_a), 2)
+                                        high_a = entry_pa
+                                        in_pos_a = True
+                                        entered_a = True
+                                        break
                         elif in_pos_a:
                             hp_a, lp_a, c_atr_a = float(df_a['High'].iloc[i]), float(df_a['Low'].iloc[i]), float(df_a['ATR'].iloc[i]) or (entry_pa * 0.01)
                             if enable_trailing and hp_a > entry_pa + (1.0 * c_atr_a) and hp_a > high_a:
@@ -354,7 +369,7 @@ elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسس�
                             elif lp_a <= sl_a:
                                 trades_a.append({"السهم": acc_bt_stock, "تاريخ الدخول": date_a, "سعر الدخول": entry_pa, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl_a - entry_pa) / entry_pa) * 100, 2)})
                                 in_pos_a = False
-                            elif i == len(df_a) - 2:
+                            elif i == len(df_a) - 6:
                                 final_ca = float(df_a['Close'].iloc[i])
                                 trades_a.append({"السهم": acc_bt_stock, "تاريخ الدخول": date_a, "سعر الدخول": entry_pa, "النتيجة": "ربح 🟢" if final_ca > entry_pa else "خسارة 🔴", "العائد (%)": round(((final_ca - entry_pa) / entry_pa) * 100, 2)})
                                 in_pos_a = False
@@ -405,15 +420,20 @@ else:
                         df_p['Signal'] = np.where((df_p['OBV_Slope'] > 0) & (df_p['Volume'] > vol_threshold * df_p['Volume_MA']) & (df_p['Close'] > df_p['SMA50']) & (df_p['RSI'] >= min_rsi_filter), 1, 0)
                         
                         in_pos, entry_p, sl, target_p, highest, e_date = False, 0, 0, 0, 0, ""
-                        for i in range(50, len(df_p) - 1):
+                        for i in range(50, len(df_p) - 5):
                             if not in_pos and df_p['Signal'].iloc[i] == 1:
-                                e_date = str(df_p.index[i+1]).split()[0]
-                                entry_p = float(df_p['Open'].iloc[i+1])
-                                c_atr = float(df_p['ATR'].iloc[i]) or (entry_p * 0.01)
-                                sl = round(entry_p - (sl_multiplier * c_atr), 2)
-                                target_p = round(entry_p + (target_multiplier * c_atr), 2)
-                                highest = entry_p
-                                in_pos = True
+                                trigger_price_p = round(float(df_p['High'].iloc[i]) + 0.02, 2)
+                                for offset in range(1, 4):
+                                    if i + offset < len(df_p):
+                                        if float(df_p['High'].iloc[i+offset]) >= trigger_price_p:
+                                            e_date = str(df_p.index[i+offset]).split()[0]
+                                            entry_p = trigger_price_p
+                                            c_atr = float(df_p['ATR'].iloc[i]) or (entry_p * 0.01)
+                                            sl = round(entry_p - (sl_multiplier * c_atr), 2)
+                                            target_p = round(entry_p + (target_multiplier * c_atr), 2)
+                                            highest = entry_p
+                                            in_pos = True
+                                            break
                             elif in_pos:
                                 h_p, l_p, c_atr = float(df_p['High'].iloc[i]), float(df_p['Low'].iloc[i]), float(df_p['ATR'].iloc[i]) or (entry_p * 0.01)
                                 if enable_trailing and h_p > entry_p + (1.0 * c_atr) and h_p > highest:
@@ -426,7 +446,7 @@ else:
                                 elif l_p <= sl:
                                     all_t.append({"السهم": name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl - entry_p) / entry_p) * 100, 2)})
                                     in_pos = False
-                                elif i == len(df_p) - 2:
+                                elif i == len(df_p) - 6:
                                     final_c = float(df_p['Close'].iloc[i])
                                     all_t.append({"السهم": name, "تاريخ الدخول": e_date, "سعر الدخول": entry_p, "النتيجة": "ربح 🟢" if final_c > entry_p else "خسارة 🔴", "العائد (%)": round(((final_c - entry_p) / entry_p) * 100, 2)})
                                     in_pos = False
