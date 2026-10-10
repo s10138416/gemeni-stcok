@@ -22,6 +22,7 @@ app_mode = st.sidebar.selectbox("اختر وضع التشغيل", [
     "🌐 مرصد السوق اللحظي المباشر (Daily Scanner)", 
     "⚡ راصد الفريمات الصغيرة للمضاربة اليومية (Scalping Scanner)",
     "📊 اختبار خلفي فردي (Single Stock Backtest)",
+    "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور (Filtered Accumulation Backtest)",
     "🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)"
 ], index=0)
 
@@ -53,6 +54,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🎛️ معايير تصفية الإشارات الوهمية (المعتمدة)")
 vol_threshold = st.sidebar.slider("عتبة تضخم الحجوم المطورة", min_value=1.2, max_value=3.0, value=1.8, step=0.1)
 min_rsi_filter = st.sidebar.slider("الحد الأدنى لمؤشر الزخم (RSI)", min_value=45, max_value=60, value=50, step=1)
+min_acc_score = st.slider("مستوى مؤشر التجميع الأدنى للمسح والاختبار (%)", 50, 95, 75)
 sl_multiplier = st.sidebar.slider("مضاعف وقف الخسارة الابتدائي (ATR)", min_value=0.8, max_value=2.0, value=1.2, step=0.2)
 target_multiplier = st.sidebar.slider("مضاعف الهدف", min_value=1.5, max_value=5.0, value=3.5, step=0.5)
 
@@ -73,6 +75,10 @@ if 'bt_results_df' not in st.session_state:
     st.session_state['bt_results_df'] = None
     st.session_state['bt_metrics'] = None
 
+if 'acc_bt_results' not in st.session_state:
+    st.session_state['acc_bt_results'] = None
+    st.session_state['acc_bt_metrics'] = None
+
 if 'portfolio_bt_df' not in st.session_state:
     st.session_state['portfolio_bt_df'] = None
     st.session_state['portfolio_metrics'] = None
@@ -81,7 +87,7 @@ if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filte
     st.subheader("🏛️ رصد التجميع المؤسسي المطور (الفرص الحية)")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        min_acc_score = st.slider("مستوى مؤشر التجميع الأدنى (%)", 50, 95, 75)
+        st.info(f"مستوى التجميع الأدنى الحالي: {min_acc_score}%")
     with col_f2:
         only_winners = st.checkbox("🟢 فلترة: عرض الأسهم ذات الزخم الإيجابي فقط", value=True)
     run_inst_scan = st.button("تشغيل المسح المؤسسي الحي الآن", type="primary")
@@ -203,9 +209,6 @@ elif app_mode == "⚡ راصد الفريمات الصغيرة للمضاربة 
 
 elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
     st.subheader("📊 اختبار خلفي فردي مع وقف خسارة متحرك مشروط (Single Stock Backtest)")
-    st.markdown("اختبار أداء استراتيجية التجميع المؤسسي على سهم واحد محدد مع عرض النتائج التفصيلية وإمكانية التحميل.")
-    
-    # 🟢 أدوات التحكم أصبحت واضحة ومباشرة في وسط الشاشة الرئيسية
     col_c1, col_c2, col_c3 = st.columns([2, 2, 1])
     with col_c1:
         bt_stock_name = st.selectbox("اختر السهم للاختبار", list(stocks_dict.keys()))
@@ -283,6 +286,101 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
         st.dataframe(st.session_state['bt_results_df'], use_container_width=True)
     elif st.session_state['bt_results_df'] is not None and st.session_state['bt_results_df'].empty:
         st.warning("⚠️ لا توجد صفقات مطابقة لهذا السهم في الفترة المحددة.")
+
+elif app_mode == "🏛️📊 اختبار خلفي للتجميع المؤسسي المطور (Filtered Accumulation Backtest)":
+    st.subheader("🏛️📊 اختبار خلفي لاستراتيجية التجميع المؤسسي المطور (Filtered Accumulation Backtest)")
+    st.markdown(f"اختبار أداء شروط التجميع المؤسسي الفعلي (مؤشر التجميع $\\ge$ {min_acc_score}% + RSI $\\ge$ {min_rsi_filter} + متوسط 50) مع إدارة المخاطر ووقف الخسارة المتحرك.")
+    
+    col_ab1, col_ab2, col_ab3 = st.columns([2, 2, 1])
+    with col_ab1:
+        acc_bt_stock = st.selectbox("اختر السهم للاختبار المؤسسي", list(stocks_dict.keys()), key="acc_stock_sel")
+    with col_ab2:
+        acc_period_label = st.selectbox("فترة الاختبار التاريخي", ["6 أشهر", "سنة كاملة", "سنتان"], key="acc_per_sel")
+        acc_period = {"6 أشهر": "6mo", "سنة كاملة": "1y", "سنتان": "2y"}[acc_period_label]
+    with col_ab3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_acc_bt = st.button("تشغيل اختبار التجميع", type="primary")
+        
+    acc_code_val = stocks_dict[acc_bt_stock]
+    
+    if run_acc_bt:
+        with st.spinner("جاري محاكاة وتطبيق استراتيجية التجميع المؤسسي المطور..."):
+            try:
+                df_a = yf.download(f"{acc_code_val}.SR", period=acc_period, interval="1d", progress=False)
+                if not df_a.empty and len(df_a) > 50:
+                    if isinstance(df_a.columns, pd.MultiIndex):
+                        df_a.columns = df_a.columns.get_level_values(0)
+                    
+                    df_a['SMA50'] = df_a['Close'].rolling(window=50).mean()
+                    df_a['OBV'] = (np.sign(df_a['Close'].diff()) * df_a['Volume']).fillna(0).cumsum()
+                    df_a['OBV_Slope'] = df_a['OBV'].diff(3)
+                    
+                    delta_a = df_a['Close'].diff()
+                    gain_a = delta_a.clip(lower=0)
+                    loss_a = -delta_a.clip(upper=0)
+                    rs_a = gain_a.rolling(14).mean() / loss_a.rolling(14).mean()
+                    df_a['RSI'] = 100 - (100 / (1 + rs_a))
+                    df_a['ATR'] = (df_a['High'] - df_a['Low']).rolling(window=14).mean()
+                    
+                    vol_mean_s = df_a['Volume'].rolling(window=15).mean()
+                    score_c = 50 + (df_a['OBV_Slope'] / (vol_mean_s + 1)) * 10 + (df_a['Volume'] / vol_mean_s) * 10
+                    df_a['Acc_Score'] = score_c.clip(45, 98.5).round(1)
+                    
+                    df_a['Signal'] = np.where(
+                        (df_a['Acc_Score'] >= min_acc_score) & 
+                        (df_a['Close'] > df_a['SMA50']) & 
+                        (df_a['RSI'] >= min_rsi_filter), 1, 0
+                    )
+                    
+                    trades_a, in_pos_a, entry_pa, sl_a, target_pa, high_a, date_a = [], False, 0, 0, 0, 0, ""
+                    for i in range(50, len(df_a)):
+                        if not in_pos_a and df_a['Signal'].iloc[i] == 1:
+                            date_a = str(df_a.index[i]).split()[0]
+                            entry_pa = float(df_a['Close'].iloc[i])
+                            c_atr_a = float(df_a['ATR'].iloc[i]) or (entry_pa * 0.01)
+                            sl_a = round(entry_pa - (sl_multiplier * c_atr_a), 2)
+                            target_pa = round(entry_pa + (target_multiplier * c_atr_a), 2)
+                            high_a = entry_pa
+                            in_pos_a = True
+                        elif in_pos_a:
+                            hp_a, lp_a, c_atr_a = float(df_a['High'].iloc[i]), float(df_a['Low'].iloc[i]), float(df_a['ATR'].iloc[i]) or (entry_pa * 0.01)
+                            if enable_trailing and hp_a > entry_pa + (1.0 * c_atr_a) and hp_a > high_a:
+                                high_a = hp_a
+                                new_sla = round(high_a - (trailing_atr_mult * c_atr_a), 2)
+                                if new_sla > sl_a: sl_a = new_sla
+                            if hp_a >= target_pa:
+                                trades_a.append({"السهم": acc_bt_stock, "تاريخ الدخول": date_a, "سعر الدخول": entry_pa, "النتيجة": "ربح 🟢", "العائد (%)": round(((target_pa - entry_pa) / entry_pa) * 100, 2)})
+                                in_pos_a = False
+                            elif lp_a <= sl_a:
+                                trades_a.append({"السهم": acc_bt_stock, "تاريخ الدخول": date_a, "سعر الدخول": entry_pa, "النتيجة": "خسارة 🔴", "العائد (%)": round(((sl_a - entry_pa) / entry_pa) * 100, 2)})
+                                in_pos_a = False
+                            elif i == len(df_a) - 1:
+                                final_ca = float(df_a['Close'].iloc[i])
+                                trades_a.append({"السهم": acc_bt_stock, "تاريخ الدخول": date_a, "سعر الدخول": entry_pa, "النتيجة": "ربح 🟢" if final_ca > entry_pa else "خسارة 🔴", "العائد (%)": round(((final_ca - entry_pa) / entry_pa) * 100, 2)})
+                                in_pos_a = False
+                                
+                    df_ta = pd.DataFrame(trades_a)
+                    if not df_ta.empty:
+                        w_ta = len(df_ta[df_ta['النتيجة'].str.contains("ربح")])
+                        wra = w_ta / len(df_ta)
+                        exp_a = (wra * df_ta[df_ta['النتيجة'].str.contains("ربح")]['العائد (%)'].mean()) - ((1 - wra) * abs(df_ta[df_ta['النتيجة'] == "خسارة 🔴"]['العائد (%)'].mean()))
+                        st.session_state['acc_bt_results'] = df_ta
+                        st.session_state['acc_bt_metrics'] = (len(df_ta), wra, exp_a)
+                    else:
+                        st.session_state['acc_bt_results'] = pd.DataFrame()
+            except Exception as ex:
+                st.error(f"خطأ في الاختبار: {ex}")
+                
+    if st.session_state.get('acc_bt_results') is not None and not st.session_state['acc_bt_results'].empty:
+        tot_a, wra, exp_a = st.session_state['acc_bt_metrics']
+        am1, am2, am3 = st.columns(3)
+        am1.metric("إجمالي صفقات التجميع", tot_a)
+        am2.metric("معدل نجاح التجميع", f"{round(wra * 100, 1)}%")
+        am3.metric("العائد المتوقع للتجميع", f"{round(exp_a, 2)}%")
+        st.download_button("📥 تحميل سجل صفقات التجميع (Excel/CSV)", st.session_state['acc_bt_results'].to_csv(index=False).encode('utf-8-sig'), "accumulation_trades.csv", "text/csv")
+        st.dataframe(st.session_state['acc_bt_results'], use_container_width=True)
+    elif st.session_state.get('acc_bt_results') is not None and st.session_state.get('acc_bt_results').empty:
+        st.warning("⚠️ لا توجد صفقات مطابقة لشروط مؤشر التجميع المؤسسي في الفترة المحددة.")
 
 else:
     st.subheader("🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)")
