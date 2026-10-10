@@ -399,7 +399,8 @@ elif app_mode == "🏛️📊 اختبار خلفي لاستراتيجية ال�
             except Exception as ex:
                 st.error(f"خطأ في الاختبار: {ex}")
                 
-    if st.session_state.get('acc_bt_results') is not None and not st.session_state['acc_bt_results'].empty:
+    # تم تصحيح الأقواس هنا لتفادي خطأ الـ SyntaxError الموضح في الصورة
+    if st.session_state.get('acc_bt_results') is not None and not st.session_state.get('acc_bt_results').empty:
         tot_a, wra, exp_a = st.session_state['acc_bt_metrics']
         am1, am2, am3 = st.columns(3)
         am1.metric("إجمالي الصفقات المحسنة", tot_a)
@@ -407,7 +408,7 @@ elif app_mode == "🏛️📊 اختبار خلفي لاستراتيجية ال�
         am3.metric("العائد المتوقع الاستراتيجي", f"{round(exp_a, 2)}%")
         st.download_button("📥 تحميل سجل الصفقات (Excel/CSV)", st.session_state['acc_bt_results'].to_csv(index=False).encode('utf-8-sig'), "accumulation_spring_trades.csv", "text/csv")
         st.dataframe(st.session_state['acc_bt_results'], use_container_width=True)
-    elif st.session_state.get('acc_bt_results') is not None and st.session_state.get('acc_bt_results'].empty:
+    elif st.session_state.get('acc_bt_results') is not None and st.session_state.get('acc_bt_results').empty:
         st.warning("⚠️ لا توجد صفقات مطابقة في الفترة المحددة.")
 
 else:
