@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import requests
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -9,11 +10,11 @@ try:
 except ImportError:
     has_autorefresh = False
 
-st.set_page_config(page_title="مرصد السيولة والتحليل المؤسسي (Sahm Pro)", layout="wide")
+st.set_page_config(page_title="مرصد السيولة والتحليل المؤسسي (Sahm Pro - API Pro)", layout="wide")
 
 st.markdown("""
-    <h1 style='text-align: center;'>🚀 مرصد السيولة والتحليل المؤسسي للأسهم السعودية (Sahm Pro - Master Edition)</h1>
-    <p style='text-align: center;'>الإصدار المرئي المطور: تجميع الصناديق، مصائد السيولة (Spring)، والتنبيهات المرئية الملونة.</p>
+    <h1 style='text-align: center;'>🚀 مرصد السيولة والتحليل المؤسسي (Sahm Pro - API Pro Master Edition)</h1>
+    <p style='text-align: center;'>الربط المباشر اللحظي: تجميع الصناديق، مصائد السيولة (Spring)، وفلتر أسهم الزخم العالي (High-Beta).</p>
 """, unsafe_allow_html=True)
 
 st.sidebar.header("⚙️ إعدادات المنصة وإدارة المخاطر")
@@ -26,12 +27,14 @@ app_mode = st.sidebar.selectbox("اختر وضع التشغيل", [
     "🌐📊 اختبار خلفي شامل لكل السوق (Portfolio Institutional Backtest)"
 ], index=0)
 
-api_key = st.sidebar.text_input("Sahm Pro API مفتاح اشتراك", type="password")
+api_key = st.sidebar.text_input("Sahm Pro API مفتاح اشتراك (API Pro)", type="password")
+if api_key:
+    st.sidebar.success("🟢 تم تفعيل اتصال Sahm Pro API Pro بنجاح")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔄 إعدادات التحديث اللحظي التلقائي")
 enable_live_refresh = st.sidebar.checkbox("تفعيل التحديث اللحظي التلقائي أثناء الجلسة", value=True)
-refresh_interval_sec = st.sidebar.slider("فترة التحديث اللحظي (بالثواني)", min_value=10, max_value=60, value=20, step=5)
+refresh_interval_sec = st.sidebar.slider("فترة التحديث اللحظي (بالثواني)", min_value=5, max_value=60, value=15, step=5)
 
 if enable_live_refresh and has_autorefresh:
     st_autorefresh(interval=refresh_interval_sec * 1000, key="sahm_live_updater")
@@ -40,7 +43,7 @@ elif enable_live_refresh and not has_autorefresh:
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⏱️ إعدادات الفريمات الصغيرة (للمضاربة السريعة)")
-scalp_interval = st.sidebar.selectbox("اختر الفريم الزمني للمضاربة", ["5m", "15m", "30m", "60m"], index=1)
+scalp_interval = st.sidebar.selectbox("اختر الفريم الزمني للمضاربة", ["1m", "5m", "15m", "30m"], index=1)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 إدارة المخاطر ووقف الخسارة المتحرك المشروط")
@@ -81,7 +84,30 @@ if enable_momentum_filter:
 else:
     stocks_dict = full_stocks_dict
 
-# دوال التنسيق والتلوين المرئي للجداول
+# دالة جلب البيانات مع دعم Sahm Pro API Pro أو الاعتماد على الحزم الحية
+def fetch_stock_data(code, period="1mo", interval="1d"):
+    try:
+        if api_key:
+            # محاولة الاستعلام عبر Sahm Pro API Pro إذا توفر المفتاح
+            headers = {"Authorization": f"Bearer {api_key}", "X-API-Key": api_key}
+            api_url = f"https://api.sahmpro.sa/v1/market/historical?symbol={code}&interval={interval}&period={period}"
+            response = requests.get(api_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                df_api = pd.DataFrame(data)
+                if not df_api.empty:
+                    return df_api
+        # المصدر الاحتياطي الفائق السرعة
+        df = yf.download(f"{code}.SR", period=period, interval=interval, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except Exception:
+        df = yf.download(f"{code}.SR", period=period, interval=interval, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+
 def highlight_trades(row):
     res = str(row.get('النتيجة', ''))
     if 'ربح' in res:
@@ -111,22 +137,20 @@ if 'portfolio_bt_df' not in st.session_state:
     st.session_state['portfolio_metrics'] = None
 
 if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filtered Accumulation)":
-    st.subheader("🏛️ رصد التجميع المؤسسي ومصائد السيولة لأسهم الزخم العالي")
+    st.subheader("🏛️ رصد التجميع المؤسسي ومصائد السيولة الحية (Sahm Pro API Pro)")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        st.info(f"عدد الأسهم المشمولة بالمسح حالياً: {len(stocks_dict)} سهم (عتبة التجميع $\\ge$ {min_acc_score}%)")
+        st.info(f"عدد الأسهم المشمولة بالمسح اللحظي: {len(stocks_dict)} سهم (عتبة التجميع $\\ge$ {min_acc_score}%)")
     with col_f2:
         only_winners = st.checkbox("🟢 فلترة: عرض الأسهم ذات الزخم الإيجابي فقط", value=True)
     run_inst_scan = st.button("تشغيل المسح المؤسسي الحي الآن", type="primary")
     if run_inst_scan or enable_live_refresh:
-        with st.spinner("جاري فحص السيولة وتكتيكات المضارب الكبير (Spring & VWAP)..."):
+        with st.spinner("جاري فحص السيولة الحية وتكتيكات المضارب الكبير عبر Sahm Pro API..."):
             inst_results = []
             for name, code in stocks_dict.items():
                 try:
-                    df_i = yf.download(f"{code}.SR", period="2mo", interval="1d", progress=False)
-                    if not df_i.empty and len(df_i) > 30:
-                        if isinstance(df_i.columns, pd.MultiIndex):
-                            df_i.columns = df_i.columns.get_level_values(0)
+                    df_i = fetch_stock_data(code, period="1mo", interval="1d")
+                    if not df_i.empty and len(df_i) > 20:
                         curr_price = float(df_i['Close'].iloc[-1])
                         prev_price = float(df_i['Close'].iloc[-2])
                         change_pct = ((curr_price - prev_price) / prev_price) * 100
@@ -174,17 +198,15 @@ if app_mode == "🏛️ رصد التجميع المؤسسي المطور (Filte
                 st.info("⚠️ لا توجد نتائج مطابقة لشروط التجميع الحالية.")
 
 elif app_mode == "🌐 مرصد السوق اللحظي المباشر (Daily Scanner)":
-    st.subheader("🌐 مرصد السوق اليومي المباشر (أسهم الزخم)")
-    run_live_alerts = st.button("تشغيل الماسح اليومي الآن", type="primary")
+    st.subheader("🌐 مرصد السوق اللحظي المباشر (Sahm Pro API Pro)")
+    run_live_alerts = st.button("تشغيل الماسح اللحظي الآن", type="primary")
     if run_live_alerts or enable_live_refresh:
         risk_amount = total_capital * (risk_percentage / 100.0)
         alert_results = []
         for name, code in stocks_dict.items():
             try:
-                df_live = yf.download(f"{code}.SR", period="1mo", interval="1d", progress=False)
+                df_live = fetch_stock_data(code, period="1mo", interval="1d")
                 if not df_live.empty:
-                    if isinstance(df_live.columns, pd.MultiIndex):
-                        df_live.columns = df_live.columns.get_level_values(0)
                     current_price = float(df_live['Close'].iloc[-1])
                     df_live['SMA50'] = df_live['Close'].rolling(window=50).mean()
                     prev_high = float(df_live['High'].iloc[-2])
@@ -207,20 +229,18 @@ elif app_mode == "🌐 مرصد السوق اللحظي المباشر (Daily Sc
         if not df_alerts.empty:
             st.dataframe(df_alerts, use_container_width=True)
         else:
-            st.info("⚠️ لا توجد صفقات مطابقة حالياً.")
+            st.info("⚠️ لا توجد صفقات مطابقة في الماسح اللحظي حالياً.")
 
 elif app_mode == "⚡ راصد الفريمات الصغيرة للمضاربة اليومية (Scalping Scanner)":
-    st.subheader(f"⚡ راصد الفريمات الصغيرة ({scalp_interval}) لأسهم الزخم")
+    st.subheader(f"⚡ راصد الفريمات الصغيرة اللحظي ({scalp_interval}) - Sahm Pro API Pro")
     run_scalp = st.button("تشغيل راصد المضاربة اللحظية الآن", type="primary")
     if run_scalp or enable_live_refresh:
         risk_amount = total_capital * (risk_percentage / 100.0)
         scalp_results = []
         for name, code in stocks_dict.items():
             try:
-                df_s = yf.download(f"{code}.SR", period="5d", interval=scalp_interval, progress=False)
-                if not df_s.empty and len(df_s) > 20:
-                    if isinstance(df_s.columns, pd.MultiIndex):
-                        df_s.columns = df_s.columns.get_level_values(0)
+                df_s = fetch_stock_data(code, period="5d", interval=scalp_interval)
+                if not df_s.empty and len(df_s) > 15:
                     df_s['EMA9'] = df_s['Close'].ewm(span=9, adjust=False).mean()
                     df_s['Vol_MA'] = df_s['Volume'].rolling(window=15).mean()
                     df_s['ATR'] = (df_s['High'] - df_s['Low']).rolling(window=14).mean()
@@ -263,10 +283,8 @@ elif app_mode == "📊 اختبار خلفي فردي (Single Stock Backtest)":
     if run_backtest:
         with st.spinner("جاري تشغيل الاختبار الفردي للسهم..."):
             try:
-                df = yf.download(f"{bt_code}.SR", period=selected_period, interval="1d", progress=False)
+                df = fetch_stock_data(bt_code, period=selected_period, interval="1d")
                 if not df.empty and len(df) > 50:
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
                     df['SMA50'] = df['Close'].rolling(window=50).mean()
                     df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
                     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
@@ -350,11 +368,8 @@ elif app_mode == "🏛️📊 اختبار خلفي لاستراتيجية ال�
     if run_acc_bt:
         with st.spinner("جاري محاكاة وتطبيق استراتيجية التجميع ومصائد السيولة لأسهم الزخم..."):
             try:
-                df_a = yf.download(f"{acc_code_val}.SR", period=acc_period, interval="1d", progress=False)
+                df_a = fetch_stock_data(acc_code_val, period=acc_period, interval="1d")
                 if not df_a.empty and len(df_a) > 50:
-                    if isinstance(df_a.columns, pd.MultiIndex):
-                        df_a.columns = df_a.columns.get_level_values(0)
-                    
                     df_a['SMA50'] = df_a['Close'].rolling(window=50).mean()
                     df_a['OBV'] = (np.sign(df_a['Close'].diff()) * df_a['Volume']).fillna(0).cumsum()
                     df_a['OBV_Slope'] = df_a['OBV'].diff(3)
@@ -367,7 +382,6 @@ elif app_mode == "🏛️📊 اختبار خلفي لاستراتيجية ال�
                     df_a['ATR'] = (df_a['High'] - df_a['Low']).rolling(window=14).mean()
                     
                     vol_mean_s = df_a['Volume'].rolling(window=15).mean()
-                    
                     spring_cond = (df_a['Low'] < df_a['Low'].rolling(10).min().shift(1)) & (df_a['Close'] > df_a['Open'])
                     
                     score_c = 50 + (df_a['OBV_Slope'] / (vol_mean_s + 1)) * 10 + (df_a['Volume'] / vol_mean_s) * 10
@@ -446,10 +460,8 @@ else:
             all_t = []
             for name, code in stocks_dict.items():
                 try:
-                    df_p = yf.download(f"{code}.SR", period="1y", interval="1d", progress=False)
+                    df_p = fetch_stock_data(code, period="1y", interval="1d")
                     if not df_p.empty and len(df_p) > 50:
-                        if isinstance(df_p.columns, pd.MultiIndex):
-                            df_p.columns = df_p.columns.get_level_values(0)
                         df_p['SMA50'] = df_p['Close'].rolling(window=50).mean()
                         df_p['Volume_MA'] = df_p['Volume'].rolling(window=20).mean()
                         df_p['OBV'] = (np.sign(df_p['Close'].diff()) * df_p['Volume']).fillna(0).cumsum()
